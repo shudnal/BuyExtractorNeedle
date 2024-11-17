@@ -2,6 +2,8 @@
 
 Buyable crate with dvergr extractor needle with customizable recipe. Press "Use" hotkey and buy its contents without fighting.
 
+Cost is configurable. You can set it as you want. Default is Coins x2000. You can set it as other items (like BlackCore x1) or make it completely free.
+
 ## Installation (manual)
 Copy BuyExtractorNeedle.dll to your BepInEx\Plugins\ folder
 
