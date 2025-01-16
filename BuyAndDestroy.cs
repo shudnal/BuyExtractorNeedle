@@ -13,6 +13,8 @@ namespace BuyExtractorNeedle
 
         public WearNTear m_wnt;
 
+        public ZNetView m_nview;
+
         public string m_requirements;
 
         public string m_description;
@@ -28,7 +30,9 @@ namespace BuyExtractorNeedle
             "$npc_haldor_random_buy4",
             "$npc_haldor_random_buy5",
             "$npc_haldor_random_sell1",
-            "$npc_haldor_random_sell2"
+            "$npc_haldor_random_sell2",
+            "$npc_haldor_random_greet4",
+            "$npc_haldor_random_sell4"
         };
 
         public static EffectList s_randomSellFX;
@@ -47,6 +51,10 @@ namespace BuyExtractorNeedle
             m_myIndex = s_allInstances.Count - 1;
 
             m_requirements = BuyExtractorNeedle.requirements.Value;
+
+            m_nview = m_destructible?.m_nview ?? m_wnt?.m_nview;
+            if (m_nview && m_nview.GetZDO() != null)
+                m_nview.Register("RPC_BuyAndRemove", RPC_BuyAndRemove);
         }
 
         public void OnDestroy()
@@ -90,27 +98,14 @@ namespace BuyExtractorNeedle
             if (requirements.Count == 0 || requirements.All(req => user.GetInventory().CountItems(req.Item1) >= req.Item2))
             {
                 requirements.ForEach(req => user.GetInventory().RemoveItem(req.Item1, req.Item2));
-                if (m_destructible)
-                    m_destructible.Destroy();
-                if (m_wnt)
-                    m_wnt.Destroy();
-
                 if (requirements.Count > 0)
-                    StoreGui.instance.m_sellEffects.Create(base.transform.position, Quaternion.identity);
+                    StoreGui.instance.m_sellEffects.Create(transform.position, Quaternion.identity);
 
-                List<Character> characters = new List<Character>();
-                Character.GetCharactersInRange(base.transform.position, 15f, characters);
-
-                Character npc = characters.Where(c => c.GetComponent<NpcTalk>()).OrderBy(c => Vector3.Distance(c.transform.position, user.transform.position)).FirstOrDefault();
-                if (npc != null)
-                {
-                    npc.GetComponent<NpcTalk>().Say(s_randomBuy[UnityEngine.Random.Range(0, s_randomBuy.Count)], "Talk");
-                    s_randomSellFX?.Create(npc.transform.position, Quaternion.identity);
-                }
+                Remove();
             }
             else
             {
-                PrivateArea.OnObjectDamaged(base.transform.position, attacker: user, destroyed: false);
+                PrivateArea.OnObjectDamaged(transform.position, attacker: user, destroyed: false);
             }
 
             return true;
@@ -121,10 +116,37 @@ namespace BuyExtractorNeedle
             return false;
         }
 
-        private static string GetDescription(string requirements)
+        public void Remove()
         {
-            return string.Join(", ", GetRequirements(requirements).Select(req => $"{req.Item1} x{req.Item2}"));
+            if (m_nview && m_nview.IsValid())
+                m_nview.InvokeRPC(ZRoutedRpc.Everybody, "RPC_BuyAndRemove");
         }
+
+        public void RPC_BuyAndRemove(long sender)
+        {
+            if (m_nview && m_nview.IsValid())
+            {
+                List<Character> characters = new List<Character>();
+                Character.GetCharactersInRange(transform.position, 15f, characters);
+
+                Character npc = characters.Where(c => c.TryGetComponent<NpcTalk>(out _)).OrderBy(c => Vector3.Distance(c.transform.position, transform.position)).FirstOrDefault();
+                if (npc != null)
+                {
+                    s_randomSellFX?.Create(npc.transform.position, Quaternion.identity);
+                    npc.GetComponent<NpcTalk>().Say(s_randomBuy[UnityEngine.Random.Range(0, s_randomBuy.Count)], "Talk");
+                }
+
+                if (m_nview.IsOwner())
+                {
+                    if (m_destructible)
+                        m_destructible.Destroy();
+                    if (m_wnt)
+                        m_wnt.Destroy();
+                }
+            }
+        }
+
+        private static string GetDescription(string requirements) => string.Join(", ", GetRequirements(requirements).Select(req => $"{req.Item1} x{req.Item2}"));
 
         private static List<Tuple<string, int>> GetRequirements(string requirements)
         {

@@ -9,9 +9,9 @@ namespace BuyExtractorNeedle
     [BepInPlugin(pluginID, pluginName, pluginVersion)]
     public class BuyExtractorNeedle : BaseUnityPlugin
     {
-        const string pluginID = "shudnal.BuyExtractorNeedle";
-        const string pluginName = "Buy Dvergr Extractor Needle";
-        const string pluginVersion = "1.0.1";
+        public const string pluginID = "shudnal.BuyExtractorNeedle";
+        public const string pluginName = "Buy Dvergr Extractor Needle";
+        public const string pluginVersion = "1.0.2";
 
         private readonly Harmony harmony = new Harmony(pluginID);
 
@@ -39,7 +39,7 @@ namespace BuyExtractorNeedle
             config("General", "NexusID", 2850, "Nexus mod ID for updates", false);
 
             configLocked = config("General", "Lock Configuration", defaultValue: true, "Configuration is locked and can be changed by server admins only.");
-            requirements = config("General", "Required items", defaultValue: "Coins:2000", "Items required to buy extractor");
+            requirements = config("General", "Required items", defaultValue: "Coins:4000", "Items required to buy extractor");
 
             requirements.SettingChanged += (sender, args) => BuyAndDestroy.UpdateDescription();
         }

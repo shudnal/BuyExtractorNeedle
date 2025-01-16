@@ -1,3 +1,7 @@
+# 1.0.2
+* fixed crate not properly destroyed in multiplayer
+* default cost is 4000 now to balance the easiness of getting extractor early
+
 # 1.0.1
 * bog witch adaptation
 
