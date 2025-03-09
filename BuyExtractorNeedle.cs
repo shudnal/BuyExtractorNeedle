@@ -11,7 +11,7 @@ namespace BuyExtractorNeedle
     {
         public const string pluginID = "shudnal.BuyExtractorNeedle";
         public const string pluginName = "Buy Dvergr Extractor Needle";
-        public const string pluginVersion = "1.0.2";
+        public const string pluginVersion = "1.0.3";
 
         private readonly Harmony harmony = new Harmony(pluginID);
 
