@@ -1,88 +1,168 @@
-﻿using BepInEx;
+﻿using System;
+using System.Collections.Generic;
+using BepInEx;
 using BepInEx.Configuration;
+using ConditionalConfigSync;
 using HarmonyLib;
-using ServerSync;
 using UnityEngine;
 
 namespace BuyExtractorNeedle
 {
     [BepInPlugin(pluginID, pluginName, pluginVersion)]
+    [BepInDependency("_shudnal.ConditionalConfigSync", BepInDependency.DependencyFlags.HardDependency)]
     public class BuyExtractorNeedle : BaseUnityPlugin
     {
         public const string pluginID = "shudnal.BuyExtractorNeedle";
         public const string pluginName = "Buy Dvergr Extractor Needle";
-        public const string pluginVersion = "1.0.3";
+        public const string pluginVersion = "1.1.0";
 
         private readonly Harmony harmony = new Harmony(pluginID);
 
-        internal static readonly ConfigSync configSync = new ConfigSync(pluginID) { DisplayName = pluginName, CurrentVersion = pluginVersion, MinimumRequiredVersion = pluginVersion };
+        internal static readonly ConfigSync configSync = new ConfigSync(pluginID)
+        {
+            DisplayName = pluginName,
+            CurrentVersion = pluginVersion,
+            MinimumRequiredVersion = pluginVersion,
+            ModRequired = true
+        };
 
-        internal static BuyExtractorNeedle instance;
+        public static BuyExtractorNeedle instance;
 
-        internal static ConfigEntry<bool> configLocked;
-        internal static ConfigEntry<string> requirements;
+        public static ConfigEntry<bool> configLocked;
+        public static ConfigEntry<string> requirements;
+        public static ConfigEntry<string> targetPrefabs;
+        public static ConfigEntry<bool> loggingEnabled;
+
+        private static readonly Dictionary<string, string> managedPrefabTexts = new Dictionary<string, string>(StringComparer.Ordinal);
 
         private void Awake()
         {
-            harmony.PatchAll();
-
             instance = this;
 
             ConfigInit();
-            _ = configSync.AddLockingConfigEntry(configLocked);
+            configSync.AddLockingConfigEntry(configLocked);
 
+            harmony.PatchAll();
             Game.isModded = true;
         }
 
-        public void ConfigInit()
+        private void ConfigInit()
         {
-            config("General", "NexusID", 2850, "Nexus mod ID for updates", false);
+            configLocked = BindConfig("General", "Lock Configuration", true, "Configuration is locked and can be changed by server admins only.");
+            requirements = BindConfig("General", "Required items", "Coins:4000", "Items required to buy a configured crate. Use prefab names separated by commas, for example Coins:4000 or Coins:2000,BlackCore:1.");
+            targetPrefabs = BindConfig("General", "Target prefabs", "dvergrprops_crate_long", "Prefab names that should become purchasable, separated by commas.");
+            loggingEnabled = BindConfig("General", "Enable logging", defaultValue: false, "Enable logging for interaction events.", false);
 
-            configLocked = config("General", "Lock Configuration", defaultValue: true, "Configuration is locked and can be changed by server admins only.");
-            requirements = config("General", "Required items", defaultValue: "Coins:4000", "Items required to buy extractor");
-
-            requirements.SettingChanged += (sender, args) => BuyAndDestroy.UpdateDescription();
+            requirements.SettingChanged += delegate { BuyAndDestroy.UpdateDescription(); };
+            targetPrefabs.SettingChanged += delegate { ApplyConfiguredPrefabs(ZNetScene.instance); };
         }
 
         private void OnDestroy()
         {
             Config.Save();
             instance = null;
-            harmony?.UnpatchSelf();
+            harmony.UnpatchSelf();
         }
 
-        ConfigEntry<T> config<T>(string group, string name, T defaultValue, ConfigDescription description, bool synchronizedSetting = true)
+        public static void LogInfo(object data)
+        {
+            if (loggingEnabled.Value)
+                instance.Logger.LogInfo(data);
+        }
+
+        public static void LogWarning(object data)
+        {
+            instance.Logger.LogWarning(data);
+        }
+
+        private ConfigEntry<T> BindConfig<T>(string group, string name, T defaultValue, ConfigDescription description, bool synchronizedSetting = true)
         {
             ConfigEntry<T> configEntry = Config.Bind(group, name, defaultValue, description);
-
             SyncedConfigEntry<T> syncedConfigEntry = configSync.AddConfigEntry(configEntry);
             syncedConfigEntry.SynchronizedConfig = synchronizedSetting;
-
             return configEntry;
         }
 
-        ConfigEntry<T> config<T>(string group, string name, T defaultValue, string description, bool synchronizedSetting = true) => config(group, name, defaultValue, new ConfigDescription(description), synchronizedSetting);
-
-        [HarmonyPatch(typeof(ZNetScene), nameof(ZNetScene.Awake))]
-        public static class ZNetScene_Awake_PatchCrateLong
+        private ConfigEntry<T> BindConfig<T>(string group, string name, T defaultValue, string description, bool synchronizedSetting = true)
         {
-            private static void Postfix(ZNetScene __instance)
-            {
-                GameObject prefab = __instance.GetPrefab("dvergrprops_crate_long");
-                if (prefab == null)
-                    return;
+            return BindConfig(group, name, defaultValue, new ConfigDescription(description), synchronizedSetting);
+        }
 
-                if (prefab.GetComponent<BuyAndDestroy>())
-                    return;
+        private static IEnumerable<string> GetTargetPrefabNames()
+        {
+            HashSet<string> names = new HashSet<string>(StringComparer.Ordinal);
+            string configuredPrefabs = targetPrefabs != null ? targetPrefabs.Value : "dvergrprops_crate_long";
+            foreach (string entry in configuredPrefabs.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string prefabName = entry.Trim();
+                if (!string.IsNullOrEmpty(prefabName))
+                    names.Add(prefabName);
+            }
+
+            return names;
+        }
+
+        internal static void ApplyConfiguredPrefabs(ZNetScene scene)
+        {
+            if (scene == null)
+                return;
+
+            HashSet<string> configuredNames = new HashSet<string>(GetTargetPrefabNames(), StringComparer.Ordinal);
+            foreach (string managedName in new List<string>(managedPrefabTexts.Keys))
+            {
+                if (configuredNames.Contains(managedName))
+                    continue;
+
+                GameObject managedPrefab = scene.GetPrefab(managedName);
+                BuyAndDestroy managedComponent = managedPrefab != null ? managedPrefab.GetComponent<BuyAndDestroy>() : null;
+                if (managedComponent != null)
+                {
+                    HoverText restoredHoverText = managedPrefab.GetComponent<HoverText>() ?? managedPrefab.AddComponent<HoverText>();
+                    restoredHoverText.m_text = managedPrefabTexts[managedName];
+                    UnityEngine.Object.Destroy(managedComponent);
+                }
+
+                managedPrefabTexts.Remove(managedName);
+            }
+
+            foreach (string prefabName in configuredNames)
+            {
+                GameObject prefab = scene.GetPrefab(prefabName);
+                if (prefab == null)
+                {
+                    if (instance != null)
+                        LogWarning("Target prefab was not found: " + prefabName);
+                    continue;
+                }
+
+                BuyAndDestroy existingComponent = prefab.GetComponent<BuyAndDestroy>();
+                if (existingComponent != null)
+                {
+                    managedPrefabTexts[prefabName] = existingComponent.m_text;
+                    continue;
+                }
 
                 HoverText hoverText = prefab.GetComponent<HoverText>();
                 if (hoverText == null)
-                    return;
+                {
+                    if (instance != null)
+                        LogWarning("Target prefab does not have HoverText and cannot be made purchasable: " + prefabName);
+                    continue;
+                }
 
+                managedPrefabTexts[prefabName] = hoverText.m_text;
                 BuyAndDestroy component = prefab.AddComponent<BuyAndDestroy>();
                 component.m_text = hoverText.m_text;
-
                 UnityEngine.Object.Destroy(hoverText);
+            }
+        }
+
+        [HarmonyPatch(typeof(ZNetScene), nameof(ZNetScene.Awake))]
+        private static class ZNetSceneAwakePatch
+        {
+            private static void Postfix(ZNetScene __instance)
+            {
+                ApplyConfiguredPrefabs(__instance);
             }
         }
     }

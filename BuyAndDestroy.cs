@@ -7,23 +7,54 @@ namespace BuyExtractorNeedle
 {
     public class BuyAndDestroy : MonoBehaviour, Hoverable, Interactable
     {
+        internal const float DvergrSearchRadius = 30f;
+        private const string PurchaseRpc = "BEN_BuyAndRemove";
+        private static readonly int PurchaseProcessedZdoKey = "shudnal.BuyExtractorNeedle.PurchaseProcessed".GetStableHashCode();
+
+        internal sealed class PaymentItem
+        {
+            internal readonly string PrefabName;
+            internal readonly string SharedName;
+            internal int Amount;
+
+            internal PaymentItem(string prefabName, string sharedName, int amount)
+            {
+                PrefabName = prefabName;
+                SharedName = sharedName;
+                Amount = amount;
+            }
+
+            internal PaymentItem Clone(int amount)
+            {
+                return new PaymentItem(PrefabName, SharedName, amount);
+            }
+        }
+
+        internal sealed class PurchaseData
+        {
+            internal readonly string BuyerName;
+            internal readonly string PurchasedPrefabName;
+            internal readonly List<PaymentItem> Payment;
+
+            internal PurchaseData(string buyerName, string purchasedPrefabName, List<PaymentItem> payment)
+            {
+                BuyerName = buyerName;
+                PurchasedPrefabName = purchasedPrefabName;
+                Payment = payment ?? new List<PaymentItem>();
+            }
+        }
+
         public string m_text = "";
-
         public Destructible m_destructible;
-
         public WearNTear m_wnt;
-
         public ZNetView m_nview;
-
         public string m_requirements;
-
         public string m_description;
-
         public int m_myIndex = -1;
 
         public static readonly List<BuyAndDestroy> s_allInstances = new List<BuyAndDestroy>();
 
-        public static readonly List<string> s_randomBuy = new List<string>()
+        public static readonly List<string> s_randomBuy = new List<string>
         {
             "$npc_haldor_random_buy1",
             "$npc_haldor_random_buy3",
@@ -39,43 +70,44 @@ namespace BuyExtractorNeedle
 
         public void Awake()
         {
-            if (s_randomSellFX == null && ZNetScene.instance)
-                s_randomSellFX = ZNetScene.instance.GetPrefab("Haldor")?.GetComponent<Trader>()?.m_randomSellFX ?? new EffectList();
+            EnsureSellEffects();
 
-            IDestructible component = GetComponent<IDestructible>();
-            
-            m_destructible = component as Destructible;
-            m_wnt = component as WearNTear;
+            IDestructible destructible = GetComponent<IDestructible>();
+            m_destructible = destructible as Destructible;
+            m_wnt = destructible as WearNTear;
 
             s_allInstances.Add(this);
             m_myIndex = s_allInstances.Count - 1;
 
             m_requirements = BuyExtractorNeedle.requirements.Value;
+            m_nview = m_destructible != null ? m_destructible.m_nview : m_wnt != null ? m_wnt.m_nview : null;
 
-            m_nview = m_destructible?.m_nview ?? m_wnt?.m_nview;
-            if (m_nview && m_nview.GetZDO() != null)
-                m_nview.Register("RPC_BuyAndRemove", RPC_BuyAndRemove);
+            if (m_nview != null && m_nview.GetZDO() != null)
+                m_nview.Register<ZPackage>(PurchaseRpc, RPC_BuyAndRemove);
         }
 
         public void OnDestroy()
         {
-            if (m_myIndex != -1)
-            {
-                s_allInstances[m_myIndex] = s_allInstances[s_allInstances.Count - 1];
-                s_allInstances[m_myIndex].m_myIndex = m_myIndex;
-                s_allInstances.RemoveAt(s_allInstances.Count - 1);
-            }
+            if (m_myIndex < 0 || m_myIndex >= s_allInstances.Count)
+                return;
+
+            int lastIndex = s_allInstances.Count - 1;
+            s_allInstances[m_myIndex] = s_allInstances[lastIndex];
+            s_allInstances[m_myIndex].m_myIndex = m_myIndex;
+            s_allInstances.RemoveAt(lastIndex);
+            m_myIndex = -1;
         }
 
         public string GetHoverText()
         {
-            if (!m_destructible && !m_wnt)
+            if (m_destructible == null && m_wnt == null)
                 return GetHoverName();
 
             if (string.IsNullOrWhiteSpace(m_description) && !string.IsNullOrWhiteSpace(m_requirements))
                 m_description = GetDescription(m_requirements);
 
-            return Localization.instance.Localize($"{m_text}\n[<color=yellow><b>$KEY_Use</b></color>] {(string.IsNullOrWhiteSpace(m_description) ? "$piece_itemstand_take" : $"$store_buy {m_description}")}");
+            string action = string.IsNullOrWhiteSpace(m_description) ? "$piece_itemstand_take" : "$store_buy " + m_description;
+            return Localization.instance.Localize(m_text + "\n[<color=yellow><b>$KEY_Use</b></color>] " + action);
         }
 
         public string GetHoverName()
@@ -85,29 +117,34 @@ namespace BuyExtractorNeedle
 
         public bool Interact(Humanoid user, bool hold, bool alt)
         {
-            if (hold)
+            if (hold || alt || (m_destructible == null && m_wnt == null) || user == null)
                 return false;
 
-            if (alt)
+            if (m_nview == null || !m_nview.IsValid())
                 return false;
 
-            if (!m_destructible && !m_wnt)
-                return false;
-
-            List<Tuple<string, int>> requirements = GetRequirements(m_requirements);
-            if (requirements.Count == 0 || requirements.All(req => user.GetInventory().CountItems(req.Item1) >= req.Item2))
+            string buyerName = GetBuyerName(user);
+            List<PaymentItem> payment = GetRequirements(m_requirements);
+            if (!HasNearbyDvergr(transform.position))
             {
-                requirements.ForEach(req => user.GetInventory().RemoveItem(req.Item1, req.Item2));
-                if (requirements.Count > 0)
-                    StoreGui.instance.m_sellEffects.Create(transform.position, Quaternion.identity);
-
-                Remove();
-            }
-            else
-            {
-                PrivateArea.OnObjectDamaged(transform.position, attacker: user, destroyed: false);
+                Remove(Array.Empty<PaymentItem>(), buyerName);
+                return true;
             }
 
+            Inventory inventory = user.GetInventory();
+            if (payment.Count > 0 && payment.Any(item => inventory.CountItems(item.SharedName) < item.Amount))
+            {
+                PrivateArea.OnObjectDamaged(transform.position, user, false);
+                return true;
+            }
+
+            foreach (PaymentItem item in payment)
+                inventory.RemoveItem(item.SharedName, item.Amount);
+
+            if (payment.Count > 0 && StoreGui.instance != null)
+                StoreGui.instance.m_sellEffects.Create(transform.position, Quaternion.identity);
+
+            Remove(payment, buyerName);
             return true;
         }
 
@@ -116,59 +153,253 @@ namespace BuyExtractorNeedle
             return false;
         }
 
-        public void Remove()
+        private void Remove(IEnumerable<PaymentItem> payment, string buyerName)
         {
-            if (m_nview && m_nview.IsValid())
-                m_nview.InvokeRPC(ZRoutedRpc.Everybody, "RPC_BuyAndRemove");
+            if (m_nview == null || !m_nview.IsValid())
+                return;
+
+            string purchasedPrefabName = m_nview.GetPrefabName();
+            m_nview.InvokeRPC(PurchaseRpc, CreatePurchasePackage(buyerName, purchasedPrefabName, payment));
         }
 
-        public void RPC_BuyAndRemove(long sender)
+        private void RPC_BuyAndRemove(long sender, ZPackage package)
         {
-            if (m_nview && m_nview.IsValid())
+            if (m_nview == null || !m_nview.IsValid() || !m_nview.IsOwner())
+                return;
+
+            PurchaseData purchase = ReadPurchasePackage(package);
+            List<PaymentItem> payment = purchase.Payment;
+            ZDO zdo = m_nview.GetZDO();
+            if (zdo == null)
+                return;
+
+            if (zdo.GetBool(PurchaseProcessedZdoKey, false))
             {
-                List<Character> characters = new List<Character>();
-                Character.GetCharactersInRange(transform.position, 15f, characters);
+                RefundPayment(payment);
+                if (BuyExtractorNeedle.instance != null)
+                    BuyExtractorNeedle.LogWarning("A repeated purchase of '" + purchase.PurchasedPrefabName + "' by player '" + purchase.BuyerName + "' was rejected and its payment was refunded: " + FormatPayment(payment) + ".");
+                return;
+            }
 
-                Character npc = characters.Where(c => c.TryGetComponent<NpcTalk>(out _)).OrderBy(c => Vector3.Distance(c.transform.position, transform.position)).FirstOrDefault();
-                if (npc != null)
-                {
-                    s_randomSellFX?.Create(npc.transform.position, Quaternion.identity);
-                    npc.GetComponent<NpcTalk>().Say(s_randomBuy[UnityEngine.Random.Range(0, s_randomBuy.Count)], "Talk");
-                }
+            zdo.Set(PurchaseProcessedZdoKey, true);
 
-                if (m_nview.IsOwner())
+            DvergrPaidItemStorage storage = DvergrPaidItemStorage.FindClosest(transform.position, DvergrSearchRadius);
+            if (storage == null)
+            {
+                RefundPayment(payment);
+                if (BuyExtractorNeedle.instance != null)
+                    BuyExtractorNeedle.LogInfo("Player '" + purchase.BuyerName + "' obtained '" + purchase.PurchasedPrefabName + "' for free because no Dvergr was available to accept payment.");
+                DestroyPurchasedObject();
+                return;
+            }
+
+            if (!storage.AcceptPurchase(purchase))
+            {
+                RefundPayment(payment);
+                if (BuyExtractorNeedle.instance != null)
+                    BuyExtractorNeedle.LogWarning("Purchase of '" + purchase.PurchasedPrefabName + "' by player '" + purchase.BuyerName + "' could not be assigned to " + storage.GetLogDescription() + ". Refunded payment: " + FormatPayment(payment) + ".");
+                DestroyPurchasedObject();
+                return;
+            }
+
+            if (BuyExtractorNeedle.instance != null)
+                BuyExtractorNeedle.LogInfo("Player '" + purchase.BuyerName + "' bought '" + purchase.PurchasedPrefabName + "' for " + FormatPayment(payment) + ". Primary payment recipient: " + storage.GetLogDescription() + ".");
+
+            DestroyPurchasedObject();
+        }
+
+        private void DestroyPurchasedObject()
+        {
+            if (m_destructible != null)
+                m_destructible.Destroy();
+            else if (m_wnt != null)
+                m_wnt.Destroy();
+        }
+
+        private void RefundPayment(IEnumerable<PaymentItem> payment)
+        {
+            foreach (PaymentItem item in payment)
+            {
+                GameObject prefab = ObjectDB.instance != null ? ObjectDB.instance.GetItemPrefab(item.PrefabName) : null;
+                ItemDrop itemDrop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+                if (itemDrop == null || itemDrop.m_itemData == null || itemDrop.m_itemData.m_shared == null)
+                    continue;
+
+                int maxStackSize = Math.Max(1, itemDrop.m_itemData.m_shared.m_maxStackSize);
+                int remaining = item.Amount;
+                while (remaining > 0)
                 {
-                    if (m_destructible)
-                        m_destructible.Destroy();
-                    if (m_wnt)
-                        m_wnt.Destroy();
+                    int stack = Math.Min(maxStackSize, remaining);
+                    DropItemStack(prefab, itemDrop, stack, transform.position + Vector3.up, Quaternion.identity);
+                    remaining -= stack;
                 }
             }
         }
 
-        private static string GetDescription(string requirements) => string.Join(", ", GetRequirements(requirements).Select(req => $"{req.Item1} x{req.Item2}"));
-
-        private static List<Tuple<string, int>> GetRequirements(string requirements)
+        internal static ItemDrop DropItemStack(GameObject prefab, ItemDrop itemDrop, int amount, Vector3 position, Quaternion rotation)
         {
-            List<Tuple<string, int>> list = new List<Tuple<string, int>>();
+            if (prefab == null || itemDrop == null || itemDrop.m_itemData == null || amount <= 0)
+                return null;
+
+            ItemDrop.ItemData itemData = itemDrop.m_itemData.Clone();
+            itemData.m_dropPrefab = prefab;
+            return ItemDrop.DropItem(itemData, amount, position, rotation);
+        }
+
+        internal static void PlaySaleResponse(NpcTalk npcTalk, int lineIndex)
+        {
+            if (npcTalk == null || s_randomBuy.Count == 0)
+                return;
+
+            EnsureSellEffects();
+            s_randomSellFX.Create(npcTalk.transform.position, Quaternion.identity);
+
+            int safeIndex = Mathf.Clamp(lineIndex, 0, s_randomBuy.Count - 1);
+            npcTalk.Say(s_randomBuy[safeIndex], "Talk");
+        }
+
+        private static void EnsureSellEffects()
+        {
+            if (s_randomSellFX != null)
+                return;
+
+            Trader trader = ZNetScene.instance != null ? ZNetScene.instance.GetPrefab("Haldor")?.GetComponent<Trader>() : null;
+            s_randomSellFX = trader != null ? trader.m_randomSellFX : new EffectList();
+        }
+
+        private static bool HasNearbyDvergr(Vector3 position)
+        {
+            return DvergrPaidItemStorage.FindClosest(position, DvergrSearchRadius) != null;
+        }
+
+        private static string GetBuyerName(Humanoid user)
+        {
+            Player player = user as Player;
+            if (player != null)
+            {
+                string playerName = player.GetPlayerName();
+                if (!string.IsNullOrWhiteSpace(playerName))
+                    return playerName;
+            }
+
+            return !string.IsNullOrWhiteSpace(user.name) ? user.name : "Unknown player";
+        }
+
+        private static string GetDescription(string requirements)
+        {
+            return string.Join(", ", GetRequirements(requirements).Select(item => item.SharedName + " x" + item.Amount).ToArray());
+        }
+
+        private static List<PaymentItem> GetRequirements(string requirements)
+        {
+            List<PaymentItem> result = new List<PaymentItem>();
+            Dictionary<string, PaymentItem> items = new Dictionary<string, PaymentItem>(StringComparer.Ordinal);
+            if (string.IsNullOrWhiteSpace(requirements) || ObjectDB.instance == null)
+                return result;
+
             foreach (string requirement in requirements.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
             {
-                string[] req = requirement.Split(new[] { ':' }, StringSplitOptions.RemoveEmptyEntries);
-                if (req.Length != 2)
+                string[] parts = requirement.Split(new[] { ':' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length != 2)
                     continue;
 
-                int amount = int.Parse(req[1]);
-                if (amount <= 0)
+                if (!int.TryParse(parts[1].Trim(), out int amount) || amount <= 0)
                     continue;
 
-                GameObject prefab = ObjectDB.instance.GetItemPrefab(req[0].Trim());
-                if (prefab == null)
+                string prefabName = parts[0].Trim();
+                GameObject prefab = ObjectDB.instance.GetItemPrefab(prefabName);
+                ItemDrop itemDrop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+                string sharedName = itemDrop != null && itemDrop.m_itemData != null && itemDrop.m_itemData.m_shared != null
+                    ? itemDrop.m_itemData.m_shared.m_name
+                    : null;
+
+                if (string.IsNullOrEmpty(sharedName))
                     continue;
 
-                list.Add(Tuple.Create(prefab.GetComponent<ItemDrop>()?.m_itemData?.m_shared?.m_name, amount));
-            };
+                if (items.TryGetValue(prefabName, out PaymentItem existing))
+                {
+                    existing.Amount = (int)Math.Min(int.MaxValue, (long)existing.Amount + amount);
+                }
+                else
+                {
+                    PaymentItem item = new PaymentItem(prefabName, sharedName, amount);
+                    items.Add(prefabName, item);
+                    result.Add(item);
+                }
+            }
 
-            return list;
+            return result;
+        }
+
+        internal static ZPackage CreatePurchasePackage(string buyerName, string purchasedPrefabName, IEnumerable<PaymentItem> payment)
+        {
+            ZPackage package = new ZPackage();
+            package.Write(buyerName ?? "Unknown player");
+            package.Write(purchasedPrefabName ?? "Unknown prefab");
+            WritePayment(package, payment);
+            return package;
+        }
+
+        internal static PurchaseData ReadPurchasePackage(ZPackage package)
+        {
+            if (package == null)
+                return new PurchaseData("Unknown player", "Unknown prefab", new List<PaymentItem>());
+
+            try
+            {
+                string buyerName = package.ReadString();
+                string purchasedPrefabName = package.ReadString();
+                return new PurchaseData(buyerName, purchasedPrefabName, ReadPayment(package));
+            }
+            catch (Exception exception)
+            {
+                if (BuyExtractorNeedle.instance != null)
+                    BuyExtractorNeedle.LogWarning("Failed to read purchase package: " + exception.Message);
+                return new PurchaseData("Unknown player", "Unknown prefab", new List<PaymentItem>());
+            }
+        }
+
+        internal static string FormatPayment(IEnumerable<PaymentItem> payment)
+        {
+            if (payment == null)
+                return "nothing";
+
+            string[] entries = payment
+                .Where(item => item != null && item.Amount > 0)
+                .Select(item => item.PrefabName + " x" + item.Amount)
+                .ToArray();
+            return entries.Length > 0 ? string.Join(", ", entries) : "nothing";
+        }
+
+        private static void WritePayment(ZPackage package, IEnumerable<PaymentItem> payment)
+        {
+            List<PaymentItem> items = payment != null ? payment.Where(item => item != null && item.Amount > 0).ToList() : new List<PaymentItem>();
+            package.Write(items.Count);
+            foreach (PaymentItem item in items)
+            {
+                package.Write(item.PrefabName);
+                package.Write(item.Amount);
+            }
+        }
+
+        private static List<PaymentItem> ReadPayment(ZPackage package)
+        {
+            List<PaymentItem> payment = new List<PaymentItem>();
+            int count = Mathf.Clamp(package.ReadInt(), 0, 64);
+            for (int i = 0; i < count; ++i)
+            {
+                string prefabName = package.ReadString();
+                int amount = package.ReadInt();
+                GameObject prefab = ObjectDB.instance != null ? ObjectDB.instance.GetItemPrefab(prefabName) : null;
+                ItemDrop itemDrop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+                string sharedName = itemDrop != null && itemDrop.m_itemData != null && itemDrop.m_itemData.m_shared != null
+                    ? itemDrop.m_itemData.m_shared.m_name
+                    : null;
+                if (!string.IsNullOrEmpty(prefabName) && !string.IsNullOrEmpty(sharedName) && amount > 0)
+                    payment.Add(new PaymentItem(prefabName, sharedName, amount));
+            }
+
+            return payment;
         }
 
         public static List<BuyAndDestroy> GetAllInstances()
@@ -178,7 +409,7 @@ namespace BuyExtractorNeedle
 
         public static void UpdateDescription()
         {
-            foreach (var item in s_allInstances)
+            foreach (BuyAndDestroy item in s_allInstances)
             {
                 item.m_requirements = BuyExtractorNeedle.requirements.Value;
                 item.m_description = "";

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ThunderstorePackageDir>$(ProjectDir)package\thunderstore\BuyExtractorNeedle\</ThunderstorePackageDir>
+    <ThunderstoreZipPath>$(ProjectDir)package\thunderstore\BuyExtractorNeedle.zip</ThunderstoreZipPath>
+    <R2ModManPluginDir>D:\r2modman\Valheim\profiles\beta\BepInEx\plugins\shudnal-BuyDvergrExtractorNeedle\</R2ModManPluginDir>
+  </PropertyGroup>
+
+  <Target Name="BuildThunderstorePackage" AfterTargets="Build">
+    <Error Condition="!Exists('$(TargetPath)')" Text="Plugin DLL was not found: $(TargetPath)" />
+    <Error Condition="!Exists('$(ThunderstorePackageDir)manifest.json')" Text="Thunderstore manifest was not found: $(ThunderstorePackageDir)manifest.json" />
+
+    <MakeDir Directories="$(ThunderstorePackageDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ThunderstorePackageDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(ProjectDir)README.md" DestinationFolder="$(ThunderstorePackageDir)" SkipUnchangedFiles="true" />
+
+    <ZipDirectory SourceDirectory="$(ThunderstorePackageDir)" DestinationFile="$(ThunderstoreZipPath)" Overwrite="true" />
+    <Message Text="Thunderstore archive created: $(ThunderstoreZipPath)" Importance="High" />
+  </Target>
+
+  <Target Name="CopyDLLPlugins" AfterTargets="BuildThunderstorePackage">
+    <MakeDir Directories="$(R2ModManPluginDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(R2ModManPluginDir)" SkipUnchangedFiles="true" />
+    <Message Text="Copied plugin DLL to: $(R2ModManPluginDir)" Importance="High" />
+  </Target>
+</Project>
