@@ -1,10 +1,10 @@
 {
   "name": "BuyDvergrExtractorNeedle",
-  "version_number": "1.1.0",
+  "version_number": "1.1.1",
   "website_url": "https://github.com/shudnal/BuyExtractorNeedle",
   "description": "Buy configured Dvergr crates peacefully. Nearby Dvergrs keep the payment, which can be recovered from them later.",
   "dependencies": [
-    "denikson-BepInExPack_Valheim-5.4.2333",
-    "shudnal-ConditionalConfigSync-1.0.1"
+    "denikson-BepInExPack_Valheim-5.4.2350",
+    "shudnal-ConditionalConfigSync-1.0.5"
   ]
 }

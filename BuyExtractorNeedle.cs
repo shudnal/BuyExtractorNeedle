@@ -9,12 +9,12 @@ using UnityEngine;
 namespace BuyExtractorNeedle
 {
     [BepInPlugin(pluginID, pluginName, pluginVersion)]
-    [BepInDependency("_shudnal.ConditionalConfigSync", BepInDependency.DependencyFlags.HardDependency)]
+    [BepInDependency("_shudnal.ConditionalConfigSync", "1.0.5")]
     public class BuyExtractorNeedle : BaseUnityPlugin
     {
         public const string pluginID = "shudnal.BuyExtractorNeedle";
         public const string pluginName = "Buy Dvergr Extractor Needle";
-        public const string pluginVersion = "1.1.0";
+        public const string pluginVersion = "1.1.1";
 
         private readonly Harmony harmony = new Harmony(pluginID);
 
@@ -78,8 +78,7 @@ namespace BuyExtractorNeedle
         private ConfigEntry<T> BindConfig<T>(string group, string name, T defaultValue, ConfigDescription description, bool synchronizedSetting = true)
         {
             ConfigEntry<T> configEntry = Config.Bind(group, name, defaultValue, description);
-            SyncedConfigEntry<T> syncedConfigEntry = configSync.AddConfigEntry(configEntry);
-            syncedConfigEntry.SynchronizedConfig = synchronizedSetting;
+            configSync.AddConfigEntry(configEntry, ConfigSyncMode.Conditional, serverControlledByDefault: synchronizedSetting);
             return configEntry;
         }
 

@@ -1,3 +1,7 @@
+# 1.1.1
+* Updated for the Valheim 1.0.7 release.
+* Updated required dependencies to BepInExPack Valheim 5.4.2350 and ConditionalConfigSync 1.0.5.
+
 # 1.1.0
 * nearby Dvergrs now keep the payment and drop it in stacks when defeated
 * large payments can be shared between several nearby Dvergrs, one stack per helper

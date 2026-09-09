@@ -26,7 +26,7 @@ The recommended configuration UI is [Configuration Manager](https://thunderstore
 ## Requirements
 
 - BepInExPack for Valheim
-- Conditional Config Sync 1.0.1 or later
+- Conditional Config Sync 1.0.5 or later
 
 ## Manual installation
 
@@ -36,15 +36,15 @@ The recommended configuration UI is [Configuration Manager](https://thunderstore
 
 The mod must be installed on the server and every connecting client.
 
-## Mirrors
+## Dependencies
 
-- [Nexus Mods](https://www.nexusmods.com/valheim/mods/2850)
-- [Thunderstore](https://valheim.thunderstore.io/package/shudnal/BuyDvergrExtractorNeedle/)
+- [BepInExPack Valheim 5.4.2350](https://thunderstore.io/c/valheim/p/denikson/BepInExPack_Valheim/)
+- [ConditionalConfigSync 1.0.5](https://thunderstore.io/c/valheim/p/shudnal/ConditionalConfigSync/)
+
+Install ConditionalConfigSync as a separate dependency; do not copy its DLLs into this mod's package.
 
 ## Donation
-
 [Buy Me a Coffee](https://buymeacoffee.com/shudnal)
 
 ## Discord
-
 [Join server](https://discord.gg/e3UtQB8GFK)

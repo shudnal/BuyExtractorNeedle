@@ -115,6 +115,11 @@ namespace BuyExtractorNeedle
             return Localization.instance.Localize(m_text);
         }
 
+        public float GetHoverOffset()
+        {
+            return 0f;
+        }
+
         public bool Interact(Humanoid user, bool hold, bool alt)
         {
             if (hold || alt || (m_destructible == null && m_wnt == null) || user == null)
