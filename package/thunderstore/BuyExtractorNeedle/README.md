@@ -23,6 +23,12 @@ dvergrprops_crate_long
 
 The recommended configuration UI is [Configuration Manager](https://thunderstore.io/c/valheim/p/shudnal/ConfigurationManager/). [Official BepInEx Configuration Manager](https://valheim.thunderstore.io/package/Azumatt/Official_BepInEx_ConfigurationManager/) is also supported.
 
+## CurrencyPocket
+
+Coins stored in CurrencyPocket can pay for crates. Coins in your inventory are used first. CurrencyPocket pays the remaining amount from your pocket. Other required items must be in your inventory.
+
+CurrencyPocket is optional. You do not need to install it to use this mod.
+
 ## Requirements
 
 - BepInExPack for Valheim

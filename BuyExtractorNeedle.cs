@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using BepInEx;
+using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using ConditionalConfigSync;
 using HarmonyLib;
@@ -10,11 +11,15 @@ namespace BuyExtractorNeedle
 {
     [BepInPlugin(pluginID, pluginName, pluginVersion)]
     [BepInDependency("_shudnal.ConditionalConfigSync", "1.0.5")]
+    [BepInDependency(currencyPocketID, BepInDependency.DependencyFlags.SoftDependency)]
     public class BuyExtractorNeedle : BaseUnityPlugin
     {
         public const string pluginID = "shudnal.BuyExtractorNeedle";
         public const string pluginName = "Buy Dvergr Extractor Needle";
-        public const string pluginVersion = "1.1.1";
+        public const string pluginVersion = "1.1.2";
+
+        internal const string currencyPocketID = "Azumatt.CurrencyPocket";
+        internal static bool currencyPocketInstalled;
 
         private readonly Harmony harmony = new Harmony(pluginID);
 
@@ -38,6 +43,7 @@ namespace BuyExtractorNeedle
         private void Awake()
         {
             instance = this;
+            currencyPocketInstalled = Chainloader.PluginInfos.ContainsKey(currencyPocketID);
 
             ConfigInit();
             configSync.AddLockingConfigEntry(configLocked);

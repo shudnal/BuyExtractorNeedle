@@ -1,6 +1,6 @@
 {
   "name": "BuyDvergrExtractorNeedle",
-  "version_number": "1.1.1",
+  "version_number": "1.1.2",
   "website_url": "https://github.com/shudnal/BuyExtractorNeedle",
   "description": "Buy configured Dvergr crates peacefully. Nearby Dvergrs keep the payment, which can be recovered from them later.",
   "dependencies": [

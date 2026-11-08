@@ -1,3 +1,6 @@
+# 1.1.2
+* Added support for paying with coins stored in CurrencyPocket.
+
 # 1.1.1
 * Updated for the Valheim 1.0.7 release.
 * Updated required dependencies to BepInExPack Valheim 5.4.2350 and ConditionalConfigSync 1.0.5.
