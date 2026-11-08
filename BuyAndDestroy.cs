@@ -137,12 +137,18 @@ namespace BuyExtractorNeedle
             }
 
             Inventory inventory = user.GetInventory();
-            if (payment.Count > 0 && payment.Any(item => inventory.CountItems(item.SharedName) < item.Amount))
+            int pocketCoins = 0;
+            if (payment.Count > 0 && !TryGetPocketCoins(user, out pocketCoins))
+                return false;
+
+            if (payment.Count > 0 && payment.Any(item => (long)inventory.CountItems(item.SharedName)
+                + (item.SharedName == "$item_coins" ? pocketCoins : 0) < item.Amount))
             {
                 PrivateArea.OnObjectDamaged(transform.position, user, false);
                 return true;
             }
 
+            // CurrencyPocket's postfix pays the remainder after inventory stacks are removed.
             foreach (PaymentItem item in payment)
                 inventory.RemoveItem(item.SharedName, item.Amount);
 
@@ -151,6 +157,22 @@ namespace BuyExtractorNeedle
 
             Remove(payment, buyerName);
             return true;
+        }
+
+        private static bool TryGetPocketCoins(Humanoid user, out int coins)
+        {
+            coins = 0;
+            if (!BuyExtractorNeedle.currencyPocketInstalled || user != Player.m_localPlayer
+                || !Player.m_localPlayer.m_customData.TryGetValue("CoinPocket_CoinCount", out string value))
+                return true;
+
+            // CurrencyPocket parses this value even when RemoveItem is called for a non-coin item.
+            // Validate it before any payment is removed, not just before spending pocket coins.
+            if (int.TryParse(value, out coins) && coins >= 0)
+                return true;
+
+            BuyExtractorNeedle.LogWarning("Purchase cancelled because the CurrencyPocket balance is invalid. No payment was taken.");
+            return false;
         }
 
         public bool UseItem(Humanoid user, ItemDrop.ItemData item)
